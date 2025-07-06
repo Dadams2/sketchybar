@@ -65,14 +65,21 @@ static inline void memory_update(struct memory* mem) {
   // Cache includes purgeable and speculative memory
   mem->cached_memory = (purgeable_pages + speculative_pages) * mem->page_size;
   
-  // Used memory is active + inactive + wired + compressed
-  mem->used_memory = (active_pages + inactive_pages + wired_pages + compressed_pages) * mem->page_size;
+  // macOS memory calculation to match Activity Monitor:
+  // App Memory = active + inactive (memory used by applications)
+  // Wired Memory = wired (system memory that can't be paged out)
+  // Used memory should NOT include compressed pages (they're not using physical RAM)
+  uint64_t app_memory_pages = active_pages + inactive_pages;
+  mem->used_memory = (app_memory_pages + wired_pages) * mem->page_size;
   
-  // Calculate memory pressure (0-100)
+  // Calculate memory pressure based on physical memory usage
   mem->used_percentage = (int)((double)mem->used_memory / (double)mem->total_memory * 100.0);
   
-  // Simple memory pressure calculation based on usage percentage
-  if (mem->used_percentage < 60) {
+  // Memory pressure calculation based on available free memory and swap usage
+  uint64_t available_pages = free_pages + purgeable_pages + speculative_pages;
+  double memory_pressure_ratio = 1.0 - ((double)available_pages / (double)(mem->total_memory / mem->page_size));
+  
+  if (memory_pressure_ratio < 0.7) {
     mem->memory_pressure = 0; // Low pressure
   } else if (mem->used_percentage < 80) {
     mem->memory_pressure = 1; // Medium pressure
